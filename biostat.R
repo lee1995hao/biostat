@@ -495,7 +495,6 @@ library(extraDistr)
 
 set.seed(1)
 n <- 100
-# ---- 这里造 4 个协变量 ----
 X <- cbind(
   X1 = rnorm(n),
   X2 = rbinom(n, 1, 0.5),
@@ -1491,6 +1490,7 @@ adlb %>%
   )
 
 
+#############决定权
 
 
 
