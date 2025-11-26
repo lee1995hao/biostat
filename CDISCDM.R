@@ -75,6 +75,12 @@ connect_name_label <- function(x){
   return(x)
 }
 
+
+
+final_data <- final_data %>% mutate(age = as.numeric(age),......)
+
+str(final_data)
+
 output_final_data <- final_data %>% mutate(across(everything(), connect_name_label))
 
 write_xpt(output_final_data,"out_DM.xpt")
