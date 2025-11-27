@@ -85,3 +85,46 @@ output_final_data <- final_data %>% mutate(across(everything(), connect_name_lab
 
 write_xpt(output_final_data,"out_DM.xpt")
 
+
+
+
+
+dataset %>% derive_var_base(
+  by_vars = exprs(USUBJID,PARAMCD),
+  source_var = AVAL,
+  new_var = BASELINE_AVAL
+)
+
+vs %>% derive_vars_merged(
+  dataset_add =  dm %>% select(STUDYID, USUBJID,AGE,AGEU),
+  by_vars = exprs(STUDYID, USUBJID),
+  filter_add = AGEU == "YEARS",
+  new_vars = exprs(level_age = case_when(
+    AGE <= 62 ~ "LOW",
+    TRUE ~ "HIGH"
+  ))
+)
+
+derive_vars_duration(
+  strat_date = exprs(TRTEDT),
+  end_date   = exprs(LSTALVDT),
+  new_var    = exprs(TRTDUR),
+  out_unit   = "days"
+)
+
+adsl %>% derive_vars_dt(
+  dtc = TRTEDT,
+  new_vars_prefix = "TRTEDT_T"
+) %>% derive_vars_dt(
+  dtc = LSTALVDT,
+  new_vars_prefix = "LSTALVDT_T"
+) %>%
+  derive_vars_duration(
+    start_date = TRTEDT_TDT,
+    end_date   = LSTALVDT_TDT,
+    new_var    = TRTDUR,
+    out_unit   = "day"
+  )
+
+
+
