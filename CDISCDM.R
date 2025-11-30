@@ -130,7 +130,187 @@ adsl %>% derive_vars_dt(
   )
 
 
-### updata from EC3
 
 
+sdtm_ae <- read.csv("/Users/holee/Desktop/SDTM/sdtm_ae_20251119_055449.csv")
+sdtm_dm <- read.csv("/Users/holee/Desktop/SDTM/sdtm_dm_20251119_055437.csv")
+
+
+adsl <- sdtm_dm %>% select(STUDYID,USUBJID,AGE,SEX,RACE)
+
+sdtm_ae$AEACN
+
+add_indix_variable <- sdtm_ae %>% mutate(
+  AESER = case_when(
+    AESER == "Y" ~ "Yes",
+    TRUE ~ "No"),
+  AERELFL = case_when(AEREL == "RELATED" ~ "Y",
+                      TRUE ~ "N"),
+  AESTDISP = case_when(
+    AEACN == "DRUG WITHDRAWN" ~ "Y",
+    TRUE ~ "N"
+  )
+  
+)
+
+add_indix_exflag_variable <- add_indix_variable %>% derive_vars_dtm(dtc = AESTDTC,new_vars_prefix = "AST")%>%
+  derive_vars_dtm(dtc = AEENDTC,new_vars_prefix = "AEN")%>%
+  derive_vars_dtm_to_dt (source_vars = exprs (ASTDTM, AENDTM))%>% 
+  derive_vars_merged(
+    dataset_add = adsl,
+    by_vars = exprs (STUDYID, USUBJID))%>%
+  derive_var_extreme_flag( ## 给极大值极小值加flag
+    by_vars = exprs(STUDYID, USUBJID,AEDECOD),
+    order = exprs(ASTDTM),
+    mode = "first", 
+    new_var = AE_FIRST_FL) 
+
+
+
+aaaaadad <- add_indix_exflag_variable %>% 
+  derive_vars_merged(
+    dataset_add = add_indix_exflag_variable,
+    by_vars = exprs(USUBJID,STUDYID,AEDECOD),
+    order = exprs(ASTDT),
+    mode = "first",
+    new_var = exprs(date_porgess = ASTDT)
+  ) %>%
+  # 第二步：计算时长
+  derive_vars_duration(
+    new_var = DURATION_days,    # 新变量名，不需要 exprs()
+    start_date = date_porgess,        # 开始日期
+    end_date = ASTDT,   # 结束日期 (即刚刚生成的第一个日期)
+    out_unit = "days"
+  )
+
+
+
+add_indix_exflag_variable_1 <- add_indix_exflag_variable %>%
+  restrict_derivation(
+    filter = AEENDY > 200,
+    derivation = derive_var_extreme_flag,
+    args = params(
+      by_vars = exprs(USUBJID),
+      order = exprs(ASTDT),
+      mode = "first",
+      new_var = AEENDY_MAXFL,
+    )
+  )
+
+
+
+
+
+add_indix_exflag_variable_1 <- add_indix_exflag_variable %>%
+  restrict_derivation( #根据 filter 条件创建临时子集。（例如：filter = AVAL > 100）对这个临时子集执行derivation的函数
+    #将派生出的新变量结果leftjoin回原始的数据集
+    derivation = derive_vars_merged,
+    args = params(
+      dataset_add = add_indix_exflag_variable,
+      by_vars = exprs(USUBJID),
+      order = exprs(ASTDT),
+      mode = "first",
+      new_vars = exprs(DATE_GT_100 = ASTDT)
+    )
+    ,filter = AEENDY > 200)
+
+add_indix_exflag_variable_2 <- add_indix_exflag_variable %>% group_by(USUBJID) %>% arrange(USUBJID,AENDT) %>%
+  mutate(
+    PREV_AENDT = lag(AEENDY),
+    PRGINDX = case_when(AEENDY > 1.1 * PREV_AENDT ~"PD",TRUE ~ "no PD")
+  ) %>%
+  ungroup()
+
+
+pd_event <- event(dataset_name = "add_indix_exflag_variable_2",#event函数生成一个临时表只包含 PRGINDX == "PD" 的行 + 新生成的变量
+                  condition = PRGINDX == "PD",
+                  set_values_to = exprs(
+                    jinzhanshijian = AENDT,
+                    jinzhanshijian_lab = "PD"
+                  ))
+
+
+
+# 2. 合并回主表[对应 derive_vars_extreme_event 的整体行为]
+caoleee <- add_indix_exflag_variable_2 %>% 
+  derive_vars_extreme_event(
+    by_vars = exprs(USUBJID),#Join Key
+    events = list(pd_event), 
+    source_datasets = list(add_indix_exflag_variable_2 = add_indix_exflag_variable_2), 
+    order = exprs(AENDT), 
+    mode = "first", 
+    new_vars = exprs(
+      PD_DATE = jinzhanshijian     # 将 event 里的 jinzhanshijian 拿出来，改名为 PD_DATE
+    )
+  )
+
+
+add_indix_exflag_variable_2 %>% 
+  derive_extreme_event(
+    by_vars = exprs(USUBJID),
+    event(dataset_name = "add_indix_exflag_variable_2",
+          condition = lag(AESTDY) - AESTDY > 30),
+    set_values_to = exprs(
+      PD_DATE = AENDT,
+      PD_DATE_LAB = "PD"
+    ),
+    order = exprs(AENDT),
+    mode = "first",
+    new_vars = exprs(PROG_EVENT, PROG_DATE)
+  )
+
+
+add_indix_exflag_variable_2 %>% group_by()
+
+
+
+
+add_indix_exflag_variable_2
+
+
+
+
+
+
+library(dplyr)
+library(lubridate)
+library(admiral)
+
+# 简化版 ADRS 数据：每次影像评估一条
+adrs <- tribble(
+  ~USUBJID, ~AVALC, ~ADT,
+  "01",     "SD",   ymd("2024-01-10"),
+  "01",     "PD",   ymd("2024-03-01"),
+  "01",     "PD",   ymd("2024-05-01"),
+  
+  "02",     "PR",   ymd("2024-01-05"),
+  "02",     "SD",   ymd("2024-02-10"),
+  
+  "03",     "SD",   ymd("2024-02-01"),
+  "03",     "PD",   ymd("2024-04-12")
+)
+
+
+add_indix_exflag_variable_3 <- add_indix_exflag_variable_2 %>%
+  derive_vars_extreme_event(source_datasets = list(add_indix_exflag_variable_2 = add_indix_exflag_variable_2),
+                            #########附表需要的原始表格
+                            events = list(
+                              event(
+                                dataset_name = "add_indix_exflag_variable_2",
+                                condition = PRGINDX == "PD",
+                                set_values_to = exprs(
+                                  EVENT = "PD",
+                                  DATE  = AENDTM,
+                                  REASON = AESEV
+                                )
+                              )
+                            ),
+                            ##################以上建立附表
+                            by_vars = exprs(USUBJID),
+                            order = exprs(DATE),
+                            mode  = "first",
+                            ###################取附表中的group排序后取第一个值
+                            new_vars = exprs(EVENT, DATE,REASON)
+                            #########取附表中的那个变量横着加回去
+  )
 
